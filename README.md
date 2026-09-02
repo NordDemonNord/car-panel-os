@@ -1,126 +1,19 @@
 # Car Dashboard
 
-Двухэкранная автомобильная приборная панель: bare-metal приборка на STM32H743IIT6 и мультимедийная система на Raspberry Pi 4 под собственной сборкой Linux (Yocto).
+A dual-screen automotive dashboard: a bare-metal instrument cluster on an STM32H743IIT6 and an infotainment system on a Raspberry Pi 4 running a custom Linux distribution built with Yocto.
 
-Учебный проект. Приоритет — освоение промышленных подходов embedded-разработки, а не скорость получения результата.
-
----
-
-## РУССКИЙ
-
-### Архитектура
-
-Система состоит из двух вычислительных узлов, каждый со своим 10.1" дисплеем — как два экрана в приборной панели автомобиля.
-
-```
-   [ПК: симулятор CAN]
-            │  UART (виртуальный COM-порт)
-                     ▼
-   ┌──────────────────────┐         ┌──────────────────────┐
-   │  STM32H743IIT6       │  UART   │  Raspberry Pi 4      │
-   │  bare-metal          │────────▶│  Yocto Linux         │
-   │                      │         │  Qt                  │
-   │  приборная панель    │         │  мультимедиа         │
-   └──────────┬───────────┘         └──────────┬───────────┘
-              │ LTDC (RGB24)                   │ RGB LCD HAT
-                        ▼                                                        ▼
-      ┌───────────────┐                ┌───────────────┐
-      │ EP1103J-55-DCT│                │ EP1103J-55-DCT│
-      │ 10.1" 1024×600│                │ 10.1" 1024×600│
-      └───────────────┘                └───────────────┘
-```
-
-**STM32H743IIT6 (bare-metal)** — выводит приборную панель: скорость, обороты, индикаторы. Принимает данные по CAN, выступает в роли CPU системы и передаёт управляющие пакеты на Raspberry Pi по UART.
-
-**Raspberry Pi 4 (Yocto Linux + Qt)** — мультимедийная система. Обрабатывает тяжёлые задачи: интерфейс, медиа. Получает управляющие пакеты от STM32.
-
-**Симуляция CAN** — на этапе разработки CAN-пакеты эмулируются с ПК и передаются в STM32 через виртуальный COM-порт.
-
-### Аппаратное обеспечение
-
-| Компонент | Модель | Примечание |
-|---|---|---|
-| MCU | STM32H743IIT6 | bare-metal, вывод через LTDC |
-| SBC | Raspberry Pi 4 Model B | Yocto Linux |
-| Дисплеи | EP1103J-55-DCT ×2 | 10.1", 1024×600, RGB24, ёмкостный тач GT9271 |
-| Адаптер дисплея | RGB LCD HAT | подключение дисплея к Raspberry Pi |
-
-Ключевые параметры дисплея: интерфейс RGB 24 бит (50 pin), DCLK ~51.2 МГц (типовое), тач GT9271 по I²C (6 pin), подсветка 18–20 В / 140 мА — требует отдельного повышающего драйвера.
-
-### Программный стек
-
-- **Yocto Project 5.0 LTS (scarthgap)** — сборка собственного дистрибутива Linux для Raspberry Pi
-- **Qt** — интерфейс мультимедийной системы
-- **Хост сборки** — Ubuntu 24.04 LTS
-
-Выбор Yocto вместо урезанной Ubuntu — осознанный: именно на Yocto построены реальные automotive-платформы (COVESA/Automotive Grade Linux). Это даёт опыт работы с BitBake, слоями, рецептами и сборкой rootfs с нуля.
-
-### Структура репозитория
-
-```
-configs/     конфигурация сборки Yocto (local.conf, bblayers.conf)
-docs/        документация, решённые проблемы
-scripts/     скрипты развёртывания окружения
-```
-
-Слои Yocto (poky, meta-raspberrypi, meta-openembedded) и артефакты сборки в репозиторий не входят — они разворачиваются скриптом.
-
-### Быстрый старт
-
-```bash
-git clone <repo-url>
-cd car-dashboard
-./scripts/setup-yocto.sh          # установит зависимости и склонирует слои
-
-cd ~/yocto/poky
-source oe-init-build-env ../build
-bitbake core-image-minimal        # первая сборка: несколько часов
-```
-
-Запись образа на SD-карту (проверить имя устройства через `lsblk`):
-
-```bash
-cd ~/yocto/build/tmp/deploy/images/raspberrypi4-64/
-sudo umount /dev/sdX1 /dev/sdX2
-bzcat core-image-minimal-raspberrypi4-64.rootfs.wic.bz2 \
-  | sudo dd of=/dev/sdX bs=4M status=progress conv=fsync
-sync
-```
-
-Подключение по SSH (Raspberry Pi должна быть подключена по Ethernet):
-
-```bash
-sudo nmap -sn 192.168.1.0/24      # найти адрес
-ssh root@<ip>                      # пароль не требуется (debug-tweaks)
-```
-
-Проблемы, встреченные при развёртывании, и их решения — в [docs/troubleshooting.md](docs/troubleshooting.md).
-
-### Статус
-
-- [x] Развёртывание окружения Yocto (scarthgap) под Raspberry Pi 4
-- [x] Сборка `core-image-minimal`, загрузка на реальном железе
-- [x] SSH-доступ к образу
-- [ ] Подключение слоя Qt, сборка образа с графическим стеком
-- [ ] Собственный layer и image recipe проекта
-- [ ] Вывод на дисплей через RGB LCD HAT
-- [ ] Протокол обмена STM32 ↔ Raspberry Pi по UART
-- [ ] Прошивка STM32: LTDC, вывод приборной панели
-- [ ] Приём CAN на STM32, симулятор CAN-пакетов на ПК
+This is a learning project. The priority is working through industry-standard embedded practices rather than reaching a result quickly.
 
 ---
----
 
-## ENGLISH
+## Architecture
 
-### Architecture
-
-The system consists of two compute nodes, each driving its own 10.1" display — like the two screens in a car's dashboard.
+Two compute nodes, each driving its own 10.1" display — like the two screens in a car's dashboard.
 
 ```
    [PC: CAN simulator]
             │  UART (virtual COM port)
-                     ▼
+            ▼
    ┌──────────────────────┐         ┌──────────────────────┐
    │  STM32H743IIT6       │  UART   │  Raspberry Pi 4      │
    │  bare-metal          │────────▶│  Yocto Linux         │
@@ -128,87 +21,96 @@ The system consists of two compute nodes, each driving its own 10.1" display —
    │  instrument cluster  │         │  infotainment        │
    └──────────┬───────────┘         └──────────┬───────────┘
               │ LTDC (RGB24)                   │ RGB LCD HAT
-                        ▼                                                        ▼
+              ▼                                ▼
       ┌───────────────┐                ┌───────────────┐
       │ EP1103J-55-DCT│                │ EP1103J-55-DCT│
       │ 10.1" 1024×600│                │ 10.1" 1024×600│
       └───────────────┘                └───────────────┘
 ```
 
-**STM32H743IIT6 (bare-metal)** — drives the instrument cluster: speed, RPM, indicator lights. Receives data over CAN, acts as the system CPU and forwards control packets to the Raspberry Pi over UART.
+**STM32H743IIT6 (bare-metal)** drives the instrument cluster: speed, RPM, indicator lights. It receives vehicle data over CAN, acts as the system CPU, and forwards control packets to the Raspberry Pi over UART.
 
-**Raspberry Pi 4 (Yocto Linux + Qt)** — the infotainment system. Handles the heavy work: UI and media. Receives control packets from the STM32.
+**Raspberry Pi 4 (Yocto Linux + Qt)** runs the infotainment system and handles the heavy work — UI and media. It receives control packets from the STM32.
 
-**CAN simulation** — during development CAN packets are emulated on a PC and fed to the STM32 through a virtual COM port.
+**CAN simulation.** During development, CAN packets are emulated on a PC and fed to the STM32 through a virtual COM port.
 
-### Hardware
+## Hardware
 
 | Component | Model | Notes |
 |---|---|---|
 | MCU | STM32H743IIT6 | bare-metal, display driven via LTDC |
 | SBC | Raspberry Pi 4 Model B | Yocto Linux |
 | Displays | EP1103J-55-DCT ×2 | 10.1", 1024×600, RGB24, GT9271 capacitive touch |
-| Display adapter | RGB LCD HAT | connects the panel to the Raspberry Pi |
+| Display adapter | Waveshare RGB LCD HAT + RGB 50P TO 40/50P | connects the panel to the Raspberry Pi |
 
-Key display parameters: 24-bit RGB interface (50 pin), DCLK ~51.2 MHz (typical), GT9271 touch over I²C (6 pin), backlight 18–20 V / 140 mA — requires a dedicated boost driver.
+Key display parameters: 24-bit parallel RGB (50 pin), DCLK 51.2 MHz typical, GT9271 touch over I²C, backlight 18–20 V / 140 mA driven by a boost converter on the HAT.
 
-### Software stack
+## Software stack
 
-- **Yocto Project 5.0 LTS (scarthgap)** — building a custom Linux distribution for the Raspberry Pi
+- **Yocto Project 5.0 LTS (scarthgap)** — custom Linux distribution for the Raspberry Pi
 - **Qt** — infotainment user interface
 - **Build host** — Ubuntu 24.04 LTS
 
-Yocto was chosen over a stripped-down Ubuntu deliberately: real automotive platforms (COVESA / Automotive Grade Linux) are built on Yocto. It provides hands-on experience with BitBake, layers, recipes and building a rootfs from scratch.
+Yocto was chosen over a stripped-down Ubuntu deliberately: real automotive platforms (COVESA / Automotive Grade Linux) are built on Yocto. It gives hands-on experience with BitBake, layers, recipes, and assembling a rootfs from scratch.
 
-### Repository layout
+## Repository layout
 
 ```
-configs/     Yocto build configuration (local.conf, bblayers.conf)
-docs/        documentation, solved problems
-scripts/     environment setup scripts
+configs/     Yocto build configuration and the Pi's boot config
+docs/        documentation and solved problems
+scripts/     environment setup and build automation
 ```
 
 Yocto layers (poky, meta-raspberrypi, meta-openembedded) and build artefacts are not tracked — they are provisioned by the setup script.
 
-### Quick start
+## Quick start
 
 ```bash
 git clone <repo-url>
-cd car-dashboard
+cd car-panel-OS
 ./scripts/setup-yocto.sh          # installs dependencies and clones the layers
-
-cd ~/yocto/poky
-source oe-init-build-env ../build
-bitbake core-image-minimal        # first build takes several hours
 ```
 
-Flashing the image to an SD card (verify the device name with `lsblk`):
+Then build and flash in one step:
 
 ```bash
-cd ~/yocto/build/tmp/deploy/images/raspberrypi4-64/
-sudo umount /dev/sdX1 /dev/sdX2
-bzcat core-image-minimal-raspberrypi4-64.rootfs.wic.bz2 \
-  | sudo dd of=/dev/sdX bs=4M status=progress conv=fsync
-sync
+./scripts/build-and-flash.sh
 ```
 
-Connecting over SSH (the Raspberry Pi must be on Ethernet):
+The script builds the image, lists removable devices, requires the target device name to be typed out in full as confirmation, unmounts its partitions, and writes the image. Use `--build-only` to skip flashing or `--flash-only` to write an already-built image.
+
+The first build takes several hours; subsequent ones are minutes.
+
+## Connecting to the board
+
+The Raspberry Pi needs an Ethernet connection to pick up a DHCP lease.
 
 ```bash
-sudo nmap -sn 192.168.1.0/24      # locate the address
-ssh root@<ip>                      # no password required (debug-tweaks)
+sudo nmap -sn 192.168.1.0/24      # locate the board
+ssh root@<ip>                      # no password (debug-tweaks)
 ```
 
-Problems encountered during setup and their solutions are documented in [docs/troubleshooting.md](docs/troubleshooting.md).
+Reserve the address in the router's DHCP settings to avoid rescanning after every reboot.
 
-### Status
+## Display configuration
 
-- [x] Yocto (scarthgap) environment set up for Raspberry Pi 4
-- [x] `core-image-minimal` built and booted on real hardware
-- [x] SSH access to the image
+DPI timings and output format are set through `RPI_EXTRA_CONFIG` in `configs/local.conf`, so they are written into `config.txt` at build time and survive reflashing. The `vc4graphics` machine feature is dropped because legacy DPI is firmware-driven and incompatible with full KMS.
+
+Details and the derivation of the timings are in
+[docs/troubleshooting.md](docs/troubleshooting.md#11-bringing-up-the-dpi-display).
+The generated `config.txt` is kept in `configs/` for reference.
+
+## Status
+
+- [x] Yocto (scarthgap) environment provisioned for Raspberry Pi 4
+- [x] `core-image-minimal` built and booted on hardware
+- [x] SSH access, nano and i2c-tools added to the image
+- [x] Build and flash automated in a single script
+- [x] DPI display driven at 1024×600 through the RGB LCD HAT
+- [x] Display configuration baked into the image via `RPI_EXTRA_CONFIG`
+- [ ] GT9271 touch panel over I²C
 - [ ] Qt layer integrated, image built with a graphics stack
 - [ ] Project-specific layer and image recipe
-- [ ] Display output through the RGB LCD HAT
 - [ ] STM32 ↔ Raspberry Pi UART protocol
 - [ ] STM32 firmware: LTDC, instrument cluster rendering
 - [ ] CAN reception on the STM32, CAN packet simulator on the PC

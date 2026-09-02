@@ -1,222 +1,12 @@
-# Проблемы и решения / Troubleshooting
+# Troubleshooting
 
-Проблемы, встреченные при развёртывании Yocto и первой сборке образа для Raspberry Pi 4.
+Problems encountered while provisioning Yocto, building the first image, and bringing up the DPI display on the Raspberry Pi 4.
 
-Окружение: Ubuntu 24.04 LTS (noble), Yocto 5.0 LTS (scarthgap), Raspberry Pi 4 Model B.
-
----
-
-## РУССКИЙ
-
-### 1. Пакет `libegl1-mesa` не найден
-
-**Симптом**
-```
-E: Невозможно найти пакет libegl1-mesa
-```
-
-**Причина**
-Начиная с Ubuntu 24.04 пакет переименован. Официальная документация Yocto ещё указывает старое имя.
-
-**Решение**
-Использовать `libegl1` вместо `libegl1-mesa` в списке зависимостей.
+Environment: Ubuntu 24.04 LTS (noble) build host, Yocto 5.0 LTS (scarthgap), Raspberry Pi 4 Model B, Waveshare RGB LCD HAT with an EP1103J-55-DCT 10.1" panel.
 
 ---
 
-### 2. Зависает `git clone` по протоколу `git://`
-
-**Симптом**
-Команда `git clone -b scarthgap git://git.yoctoproject.org/poky` висит без вывода и без счётчика объектов.
-
-**Причина**
-Протокол `git://` работает на порту 9418, который часто блокируется провайдерами и корпоративными файрволами.
-
-**Решение**
-Клонировать по HTTPS (порт 443):
-```bash
-git clone -b scarthgap https://git.yoctoproject.org/git/poky
-git clone -b scarthgap https://git.yoctoproject.org/git/meta-raspberrypi
-git clone -b scarthgap https://git.openembedded.org/meta-openembedded
-```
-
----
-
-### 3. BitBake не стартует: отсутствует локаль `en_US.UTF-8`
-
-**Симптом**
-```
-ERROR: Unable to start bitbake server (None)
-ERROR: Server didn't start, last 60 loglines (.../bitbake-cookerdaemon.log):
-Please make sure locale 'en_US.UTF-8' is available on your system
-```
-
-**Причина**
-BitBake требует локаль `en_US.UTF-8`. На системах, установленных не на английском языке, она часто не сгенерирована.
-
-**Решение**
-```bash
-sudo locale-gen en_US.UTF-8
-sudo update-locale LANG=en_US.UTF-8
-locale -a | grep en_US    # проверка: должно вывести en_US.utf8
-```
-После этого перезапустить терминал и заново выполнить `source oe-init-build-env`.
-
----
-
-### 4. BitBake не работает: user namespaces заблокированы AppArmor
-
-**Симптом**
-```
-ERROR: User namespaces are not usable by BitBake, possibly due to AppArmor.
-```
-
-**Причина**
-Начиная с Ubuntu 23.10 AppArmor по умолчанию ограничивает непривилегированные user namespaces, которые BitBake использует для изоляции задач сборки.
-
-**Решение**
-Создать профиль AppArmor. Путь к Python проверить через `python3 --version` и `readlink -f $(command -v python3)`.
-
-```bash
-sudo nano /etc/apparmor.d/bitbake
-```
-
-Содержимое (подставить актуальный путь к python3):
-```
-abi <abi/4.0>,
-include <tunables/global>
-
-profile bitbake /usr/bin/python3.12 flags=(unconfined) {
-  userns,
-
-  include if exists <local/bitbake>
-}
-```
-
-Применить:
-```bash
-sudo apparmor_parser -r /etc/apparmor.d/bitbake
-```
-
----
-
-### 5. WARNING `do_fetch: Failed to fetch URL ...` во время сборки
-
-**Симптом**
-Десятки предупреждений вида:
-```
-WARNING: gcc-source-13.4.0-r0 do_fetch: Failed to fetch URL https://ftpmirror.gnu.org/..., attempting MIRRORS if available
-```
-
-**Причина**
-Основные upstream-зеркала (ftpmirror.gnu.org, download.savannah.gnu.org) недоступны или медленны.
-
-**Решение**
-Ничего делать не нужно. BitBake автоматически переключается на PREMIRRORS — собственные зеркала Yocto Project. Проверять нужно итоговую строку:
-```
-NOTE: Tasks Summary: Attempted 3729 tasks of which 0 didn't need to be rerun and all succeeded.
-```
-`WARNING` — не ошибка, сборка успешна.
-
----
-
-### 6. Raspberry Pi не загружается: образ скопирован пофайлово
-
-**Симптом**
-Карта отформатирована вручную, файлы из образа скопированы в разделы. При подаче питания зелёный светодиод гаснет, система не загружается.
-
-**Причина**
-Файл `.wic` — это полный образ диска **вместе с таблицей разделов**, а не архив с файлами. Его нельзя распаковывать и копировать вручную. При ручном копировании теряются `.dtb` (device tree) и папка `overlays/` — без device tree ядро не стартует.
-
-**Решение**
-Записать образ побайтово через `dd`. Форматировать и размечать карту заранее не нужно — `dd` перезапишет таблицу разделов.
-
-```bash
-lsblk                                    # определить устройство (диск целиком, не раздел!)
-sudo umount /dev/sdX1 /dev/sdX2
-cd ~/yocto/build/tmp/deploy/images/raspberrypi4-64/
-bzcat core-image-minimal-raspberrypi4-64.rootfs.wic.bz2 \
-  | sudo dd of=/dev/sdX bs=4M status=progress conv=fsync
-sync
-```
-
-**Проверка корректной записи:**
-- раздел `boot` — около 136 МБ FAT, содержит `bcm2711-rpi-4-b.dtb` и папку `overlays/`
-- раздел `root` — около 49 МБ ext4 (по размеру rootfs, а не по размеру карты)
-- остаток карты — неразмеченное свободное место
-
----
-
-### 7. Нет SSH-доступа к собранному образу
-
-**Причина**
-`core-image-minimal` по умолчанию не содержит SSH-сервера.
-
-**Решение**
-В `build/conf/local.conf` добавить одну строку:
-```
-EXTRA_IMAGE_FEATURES += "ssh-server-openssh debug-tweaks"
-```
-
-- `ssh-server-openssh` — устанавливает OpenSSH;
-- `debug-tweaks` — разрешает вход root с пустым паролем (**только для разработки**, в продакшене убрать).
-
-Использовать `+=`, а не `?=`: `?=` присваивает значение только если переменная не задана, что может перезаписать другие фичи образа.
-
-После правки пересобрать и заново записать карту:
-```bash
-bitbake core-image-minimal
-```
-
----
-
-### 8. Raspberry Pi не видна в сети после загрузки
-
-**Симптом**
-`nmap -sn 192.168.1.0/24` не находит устройство, `ping raspberrypi4-64.local` не резолвится.
-
-**Причины и решения**
-
-*Ping по имени.* В `core-image-minimal` нет mDNS-демона (avahi), поэтому имена `.local` не резолвятся. Это ожидаемо и не является признаком проблемы.
-
-*Сканирование сети.* Запускать nmap через `sudo` — тогда используются ARP-запросы вместо ICMP, и находятся хосты, не отвечающие на ping:
-```bash
-sudo nmap -sn 192.168.1.0/24
-```
-MAC-адреса Raspberry Pi начинаются с `dc:a6:32`, `e4:5f:01` или `b8:27:eb`.
-
-*Диагностика по светодиодам без монитора.* Зелёный светодиод ACT на Pi 4 — индикатор обращений к SD-карте, а не признак «система жива». После загрузки система простаивает, обращений к карте нет, и светодиод гаснет — это **нормальное поведение**. Признак ошибки — циклически повторяющиеся серии из одинакового числа вспышек (4 вспышки — не запустился `start.elf`, 7 — не найдено ядро, 8 — проблема с SDRAM).
-
-Гораздо надёжнее смотреть на **светодиоды Ethernet-разъёма**: если они горят, значит ядро загрузилось, драйвер сетевой карты поднялся и физический линк есть.
-
-*Главная рекомендация.* Диагностировать загрузку вслепую — потеря времени. Подключить монитор по micro-HDMI (или USB-UART к GPIO) и увидеть полный лог загрузки.
-
----
-
-### 9. Проверка работы SSH с выводом на монитор
-
-Записать текст напрямую в системную консоль (это экран, подключённый по HDMI):
-```bash
-echo "SSH works!" > /dev/tty1
-```
-
-Другие способы:
-```bash
-wall "Hello from SSH"          # сообщение во все терминалы сразу
-who                            # показать активные сессии: tty1 (монитор) и pts/0 (SSH)
-
-# помигать светодиодом ACT
-echo none > /sys/class/leds/ACT/trigger
-echo 1    > /sys/class/leds/ACT/brightness
-echo 0    > /sys/class/leds/ACT/brightness
-echo mmc0 > /sys/class/leds/ACT/trigger    # вернуть штатное поведение
-```
-
----
----
-
-## ENGLISH
-
-### 1. Package `libegl1-mesa` not found
+## 1. Package `libegl1-mesa` not found
 
 **Symptom**
 ```
@@ -231,7 +21,7 @@ Use `libegl1` instead of `libegl1-mesa` in the dependency list.
 
 ---
 
-### 2. `git clone` hangs over the `git://` protocol
+## 2. `git clone` hangs over the `git://` protocol
 
 **Symptom**
 `git clone -b scarthgap git://git.yoctoproject.org/poky` hangs with no output and no object counter.
@@ -249,7 +39,7 @@ git clone -b scarthgap https://git.openembedded.org/meta-openembedded
 
 ---
 
-### 3. BitBake fails to start: missing `en_US.UTF-8` locale
+## 3. BitBake fails to start: missing `en_US.UTF-8` locale
 
 **Symptom**
 ```
@@ -271,7 +61,7 @@ Restart the terminal afterwards and re-run `source oe-init-build-env`.
 
 ---
 
-### 4. BitBake fails: user namespaces blocked by AppArmor
+## 4. BitBake fails: user namespaces blocked by AppArmor
 
 **Symptom**
 ```
@@ -282,7 +72,7 @@ ERROR: User namespaces are not usable by BitBake, possibly due to AppArmor.
 Since Ubuntu 23.10, AppArmor restricts unprivileged user namespaces by default. BitBake uses them to isolate build tasks.
 
 **Fix**
-Create an AppArmor profile. Check the Python path with `python3 --version` and `readlink -f $(command -v python3)`.
+Create an AppArmor profile. Check the Python path with `readlink -f $(command -v python3)`.
 
 ```bash
 sudo nano /etc/apparmor.d/bitbake
@@ -307,7 +97,7 @@ sudo apparmor_parser -r /etc/apparmor.d/bitbake
 
 ---
 
-### 5. `do_fetch: Failed to fetch URL ...` warnings during the build
+## 5. `do_fetch: Failed to fetch URL ...` warnings during the build
 
 **Symptom**
 Dozens of warnings such as:
@@ -327,7 +117,7 @@ A `WARNING` is not an error; the build succeeded.
 
 ---
 
-### 6. Raspberry Pi won't boot: image copied file-by-file
+## 6. Raspberry Pi won't boot: image copied file-by-file
 
 **Symptom**
 The card was formatted manually and image files were copied into the partitions. On power-up the green LED goes dark and the system does not boot.
@@ -354,7 +144,7 @@ sync
 
 ---
 
-### 7. No SSH access to the built image
+## 7. No SSH access to the built image
 
 **Cause**
 `core-image-minimal` ships without an SSH server.
@@ -368,16 +158,24 @@ EXTRA_IMAGE_FEATURES += "ssh-server-openssh debug-tweaks"
 - `ssh-server-openssh` installs OpenSSH;
 - `debug-tweaks` allows root login with an empty password (**development only** — remove for production).
 
-Use `+=` rather than `?=`: `?=` only assigns when the variable is unset, which can overwrite other image features.
-
-Rebuild and re-flash the card afterwards:
-```bash
-bitbake core-image-minimal
-```
+Use `+=` rather than `?=`: `?=` only assigns when the variable is unset, which can silently drop other image features.
 
 ---
 
-### 8. Raspberry Pi not visible on the network after boot
+## 8. Adding packages to the image
+
+`core-image-minimal` has no text editor, no diagnostic tools, and no package manager to add them at runtime. Anything needed on the target must go into the image at build time.
+
+Add to `build/conf/local.conf`:
+```
+IMAGE_INSTALL:append = " nano i2c-tools"
+```
+
+**Note the leading space** inside the quotes. The `:append` operator concatenates without inserting a separator, unlike `+=`, so omitting the space glues the package name onto the previous value and breaks the build.
+
+---
+
+## 9. Raspberry Pi not visible on the network after boot
 
 **Symptom**
 `nmap -sn 192.168.1.0/24` finds nothing; `ping raspberrypi4-64.local` fails to resolve.
@@ -390,31 +188,170 @@ bitbake core-image-minimal
 ```bash
 sudo nmap -sn 192.168.1.0/24
 ```
-Raspberry Pi MAC addresses start with `dc:a6:32`, `e4:5f:01` or `b8:27:eb`.
+The reliable way to identify the board is to diff the host list against a scan taken before the Pi was powered on. MAC-based identification is not dependable: while Raspberry Pi OUIs are `dc:a6:32`, `e4:5f:01` and `b8:27:eb`, some images generate a locally-administered address instead.
 
 *LED diagnostics without a monitor.* The green ACT LED on the Pi 4 indicates SD card activity, not "system alive". Once booted the system idles, there is no card activity, and the LED goes dark — this is **normal behaviour**. An actual error is signalled by cyclically repeating flash groups of a fixed count (4 flashes — `start.elf` did not launch, 7 — kernel not found, 8 — SDRAM failure).
 
 The **Ethernet port LEDs** are a far more reliable signal: if they are lit, the kernel booted, the NIC driver came up, and a physical link is established.
 
-*Main recommendation.* Diagnosing boot problems blind wastes time. Connect a monitor over micro-HDMI (or a USB-UART adapter to the GPIO header) and read the full boot log.
+*Main recommendation.* Diagnosing boot problems blind wastes time. Connect a monitor over micro-HDMI (or a USB-UART adapter to the GPIO header) and read the full boot log. Doing this immediately would have saved roughly an hour of guesswork.
+
+Once the address is known, reserve it in the router's DHCP settings so it survives reboots.
 
 ---
 
-### 9. Verifying SSH with output on the monitor
+## 10. SSH host key verification failed after reflashing
 
-Write text directly to the system console (the HDMI-attached screen):
-```bash
-echo "SSH works!" > /dev/tty1
+**Symptom**
+```
+WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!
 ```
 
-Other options:
-```bash
-wall "Hello from SSH"          # broadcast to every terminal at once
-who                            # list active sessions: tty1 (monitor) and pts/0 (SSH)
+**Cause**
+Reflashing the card regenerates the SSH host keys. The client sees a different key for a known address and refuses to connect. Harmless in this case.
 
-# blink the ACT LED
-echo none > /sys/class/leds/ACT/trigger
-echo 1    > /sys/class/leds/ACT/brightness
-echo 0    > /sys/class/leds/ACT/brightness
-echo mmc0 > /sys/class/leds/ACT/trigger    # restore default behaviour
+**Fix**
+```bash
+ssh-keygen -f ~/.ssh/known_hosts -R 192.168.1.18
+```
+
+To avoid this on every reflash, add to `~/.ssh/config` (**development boards only**):
+```
+Host 192.168.1.18
+    StrictHostKeyChecking no
+    UserKnownHostsFile /dev/null
+```
+
+---
+
+## 11. Bringing up the DPI display
+
+The panel is an EP1103J-55-DCT (10.1", 1024×600, 24-bit parallel RGB) connected through a Waveshare RGB LCD HAT and an RGB 50P TO 40/50P adapter.
+
+### Timings
+
+Derived from the panel datasheet, DE mode (pin 8 `MODE` is pulled high by default, so synchronisation follows the DEN signal):
+
+| Parameter | Value |
+|---|---|
+| Active area | 1024 × 600 |
+| H front porch / sync / back porch | 160 / 20 / 140 (sums to 320 = HSYNC blanking) |
+| V front porch / sync / back porch | 12 / 3 / 20 (sums to 35 = VSYNC blanking) |
+| Total frame | 1344 × 635 |
+| Pixel clock | 1344 × 635 × 60 = 51 206 400 Hz |
+
+The computed clock matches the datasheet's typical DCLK of 51.2 MHz, which confirms the porch split.
+
+### Configuration
+
+Appended to `/boot/config.txt`:
+
+```
+#dtoverlay=vc4-kms-v3d
+
+gpio=0-27=a2
+enable_dpi_lcd=1
+display_default_lcd=1
+dpi_group=2
+dpi_mode=87
+dpi_output_format=0x6f005
+dpi_timings=1024 0 160 20 140 600 0 12 3 20 0 0 0 60 0 51206400 6
+```
+
+Three things are worth calling out:
+
+**`gpio=0-27=a2` replaces `dtoverlay=dpi24`.** meta-raspberrypi deploys only a subset of overlays and `dpi24.dtbo` is not among them — `ls /boot/overlays/ | grep -i dpi` comes back empty. The overlay's job is to switch GPIO 0–27 into ALT2 (DPI) mode, which the `gpio=` directive does directly. Waveshare uses the same approach for several of their panels.
+
+**`vc4-kms-v3d` must be commented out.** Legacy DPI is handled by the firmware (`start4.elf`), not by the kernel, and is incompatible with full KMS. With KMS disabled the DRM driver no longer loads, so `dmesg | grep -i drm` returns nothing — that is expected, not a fault.
+
+**`dpi_output_format=0x6f005` comes from the HAT, not the panel.** This value encodes the RGB bit ordering, which is a property of how the HAT is wired. It is taken from Waveshare's documented configuration for their 7inch DPI LCD, which uses the same HAT and the same 1024×600 resolution.
+
+### Verification
+
+```bash
+cat /sys/class/graphics/fb0/virtual_size    # expect: 1024,600
+```
+
+If this reports the panel resolution, the firmware accepted the timings and DPI mode is active. A different value means the configuration did not take effect.
+
+### The actual failure was mechanical
+
+With the configuration correct and `virtual_size` reporting `1024,600`, the panel stayed dark — including its backlight. The FFC cable between the HAT and the adapter board was not seated correctly.
+
+**The backlight is the signal to check first.** The panel's backlight (42 LEDs, 6 series × 7 parallel, 18–20 V at 140 mA) is driven by a boost converter on the HAT and is independent of the video signal. If the backlight is dark, nothing on the matrix is visible regardless of how correct the timings are — so there is no point tuning porches until it lights up.
+
+Order of investigation for a dark panel:
+
+1. Backlight switch on the HAT set to ON
+2. Both FFC/FPC cables fully seated, contacts facing the correct way, latches closed on both sides
+3. Panel connected to the correct socket on the adapter (this varies by panel size)
+4. Voltage across LEDA/LEDK measured with a multimeter — expect 18–20 V
+5. Only then: timings, output format, `virtual_size`
+
+The `VCOM` trimmer on the HAT adjusts matrix contrast and is only worth touching once an image is actually visible.
+
+### Baking the configuration into the image
+
+`config.txt` lives on the boot partition, which `dd` overwrites in full on every reflash — so editing it by hand means losing the display after each new image. meta-raspberrypi generates the file from the `rpi-config` recipe, and `RPI_EXTRA_CONFIG` appends arbitrary lines to it.
+
+Appending alone is not enough here: `dtoverlay=vc4-kms-v3d` is emitted by meta-raspberrypi itself, and `RPI_EXTRA_CONFIG` cannot remove an existing line (upstream issue #1328). The overlay comes from the `vc4graphics` machine feature, so that feature has to be dropped.
+
+In `build/conf/local.conf`:
+
+```
+MACHINE_FEATURES:remove = "vc4graphics"
+
+RPI_EXTRA_CONFIG = ' \n\
+# Waveshare RGB LCD HAT + EP1103J-55-DCT 10.1 inch 1024x600 \n\
+gpio=0-27=a2 \n\
+enable_dpi_lcd=1 \n\
+display_default_lcd=1 \n\
+dpi_group=2 \n\
+dpi_mode=87 \n\
+dpi_output_format=0x6f005 \n\
+dpi_timings=1024 0 160 20 140 600 0 12 3 20 0 0 0 60 0 51206400 6 \n\
+'
+```
+
+Two syntax traps:
+
+**No double quotes inside the value.** The recipe interpolates `RPI_EXTRA_CONFIG` into shell code inside a `printf "..."`, so a `"` in the text — for instance writing the panel size as `10.1"` — terminates the string early and the parse fails with:
+```
+ERROR: .../rpi-config_git.bb: Error during parse shell code
+bb.pysh.pyshlex.NeedMore
+```
+Write `10.1 inch` instead, or escape the quote.
+
+**Line continuation.** Each line ends with `\n\` — the `\n` becomes a newline in the generated file, the trailing backslash escapes the real newline in `local.conf`. Single quotes around the whole value.
+
+The recipe also warns if any line in `config.txt` exceeds 80 characters, which the timings line stays under.
+
+### Verifying
+
+```bash
+grep -c vc4 /boot/config.txt        # expect: 0
+grep dpi_timings /boot/config.txt   # expect: the timings line
+```
+
+Both checks passing on a freshly flashed card means the configuration is reproducible and survives reflashing.
+
+---
+
+## 12. `set -u` conflicts with `oe-init-build-env`
+
+**Symptom**
+A build script using `set -euo pipefail` aborts with:
+```
+oe-init-build-env: line 29: BBSERVER: unbound variable
+```
+
+**Cause**
+`set -u` (abort on undefined variable) applies to any script sourced afterwards. `oe-init-build-env` legitimately references variables such as `BBSERVER` that may be unset.
+
+**Fix**
+Disable the option around the call:
+```bash
+set +u
+source oe-init-build-env "$BUILD_DIR" >/dev/null
+set -u
 ```
