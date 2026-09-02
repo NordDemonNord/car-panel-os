@@ -1,1 +1,58 @@
+# --- Yocto: сборочные артефакты и кэш ---------------------------------------
+# Всё это генерируется заново и весит десятки гигабайт.
 build/
+tmp/
+tmp-glibc/
+downloads/
+sstate-cache/
+cache/
+bitbake-cookerdaemon.log
+buildhistory/
+
+# --- Yocto: слои ------------------------------------------------------------
+# Чужие репозитории, клонируются скриптом setup-yocto.sh.
+poky/
+meta-raspberrypi/
+meta-openembedded/
+
+# --- Образы и прошивки ------------------------------------------------------
+*.wic
+*.wic.*
+*.rootfs.*
+*.ext3
+*.ext4
+*.tar.bz2
+*.tar.gz
+*.tar.xz
+*.img
+*.bin
+*.elf
+*.hex
+
+# --- STM32 / IDE ------------------------------------------------------------
+Debug/
+Release/
+*.o
+*.d
+*.su
+*.map
+*.list
+.settings/
+.cproject
+.project
+.mxproject
+
+# --- Qt ---------------------------------------------------------------------
+*.pro.user
+*.pro.user.*
+moc_*.cpp
+qrc_*.cpp
+ui_*.h
+CMakeLists.txt.user
+
+# --- Прочее -----------------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
