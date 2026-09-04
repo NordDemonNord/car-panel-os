@@ -355,3 +355,71 @@ set +u
 source oe-init-build-env "$BUILD_DIR" >/dev/null
 set -u
 ```
+
+## 13. DPI panel under full KMS: display dead, HDMI dead, no /dev/dri
+
+**Symptom.** After switching the panel from legacy firmware DPI to
+`vc4-kms-dpi-generic`, the board showed a console on HDMI for about a second
+and then dropped to "no signal". The DPI panel showed backlight only. SSH did
+not come up either. An earlier build did boot, and its log contained:
+
+    platform panel: Fixed dependency cycle(s) with /soc/dpi@7e208000
+    platform fe208000.dpi: Fixed dependency cycle(s) with /panel
+
+with no `vc4` lines at all.
+
+**Bisecting config.txt.** Commenting out the whole DPI block brought the HDMI
+console back. Re-enabling a single line — `dtoverlay=vc4-kms-dpi-generic,rgb888`
+— killed it again. This is the key observation: `vc4-kms-v3d` exposes one DRM
+device for every output, so a broken DPI panel node takes HDMI down with it.
+
+**Ruled out along the way.** The overlay on the boot partition was byte-identical
+to the one built by `linux-raspberrypi` 6.6.63 (same md5), so it was not a
+version mismatch. `config.txt` contained no I2C, SPI or UART parameters, so
+there was no contention for GPIO 0-27. Dropping to `rgb666` and lowering the
+pixel clock changed nothing.
+
+**Root cause.** A build-order problem in the kernel config:
+
+    CONFIG_DRM_VC4=y            # built in, probes before rootfs is mounted
+    CONFIG_DRM_PANEL_SIMPLE=m   # a module in /lib/modules, not yet reachable
+
+`vc4-kms-dpi-generic` creates a node with `compatible = "panel-dpi"`, which is
+handled by `panel-simple`. Built as a module, that driver simply does not exist
+at the time `vc4` probes. The probe defers forever, `vc4` never registers, and
+no DRM device is created — hence no DPI, no HDMI, and a one-second flash as the
+firmware framebuffer is torn down.
+
+**What did not work.** Shipping a `.cfg` fragment through a `.bbappend` had no
+effect: `linux-raspberrypi` in scarthgap does not inherit `kernel-yocto`, so
+config fragments are fetched into WORKDIR and then ignored. Patching `.config`
+directly did not work either — Kconfig refuses `=y` for a symbol whose
+dependency is `=m`, and `oldconfig` silently reverted the change because
+`CONFIG_BACKLIGHT_CLASS_DEVICE=m`.
+
+**Fix.** Force the whole dependency chain builtin from `do_configure:append`:
+
+    do_configure:append() {
+        for s in BACKLIGHT_CLASS_DEVICE DRM_PANEL_SIMPLE; do
+            sed -i "/^CONFIG_${s}=/d;/^# CONFIG_${s} is not set/d" ${B}/.config
+            echo "CONFIG_${s}=y" >> ${B}/.config
+        done
+        yes '' | oe_runmake -C ${S} O=${B} oldconfig
+    }
+
+Also drop `MACHINE_FEATURES:remove = "vc4graphics"` from `local.conf`. It does
+more than suppress the `vc4-kms-v3d` line in config.txt — it disables
+`CONFIG_DRM_VC4` in the kernel entirely.
+
+**Lessons.**
+
+- sstate will happily serve a stale kernel config. After touching anything that
+  affects `do_configure`, run `bitbake -c cleansstate virtual/kernel` and verify
+  the resulting `.config` *before* building an image. Three build cycles were
+  spent flashing a kernel that had never been reconfigured.
+- Verify a hypothesis at its cheapest point. `grep` on `.config` takes a second;
+  a build plus a flash plus a boot takes forty minutes.
+- On the Pi, DRM is all-or-nothing. A dead HDMI is not a second failure to chase
+  — it is evidence about the first one.
+- A serial console is not optional. Every dead end here came from having no way
+  to read the kernel log when the board would not boot.
