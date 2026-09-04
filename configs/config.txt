@@ -241,13 +241,13 @@
 
 
 #dtoverlay=act-led,activelow=off
- 
+# Enable VC4 Graphics
+dtoverlay=vc4-kms-v3d
+
 # Waveshare RGB LCD HAT + EP1103J-55-DCT 10.1 inch 1024x600 
-gpio=0-27=a2 
-enable_dpi_lcd=1 
-display_default_lcd=1 
-dpi_group=2 
-dpi_mode=87 
-dpi_output_format=0x6f005 
-dpi_timings=1024 0 160 20 140 600 0 12 3 20 0 0 0 60 0 51206400 6 
+dtoverlay=vc4-kms-dpi-generic,rgb888 
+dtparam=clock-frequency=51206400 
+dtparam=hactive=1024,hfp=160,hsync=20,hbp=140 
+dtparam=vactive=600,vfp=12,vsync=3,vbp=20 
+dtparam=width-mm=223,height-mm=125 
 
