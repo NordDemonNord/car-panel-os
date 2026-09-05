@@ -56,9 +56,10 @@ Yocto was chosen over a stripped-down Ubuntu deliberately: real automotive platf
 ## Repository layout
 
 ```
-configs/     Yocto build configuration and the Pi's boot config
-docs/        documentation and solved problems
-scripts/     environment setup and build automation
+configs/        Yocto build configuration and the Pi's boot config
+docs/           documentation and solved problems
+meta-carpanel/  project-specific Yocto layer
+scripts/        environment setup and build automation
 ```
 
 Yocto layers (poky, meta-raspberrypi, meta-openembedded) and build artefacts are not tracked — they are provisioned by the setup script.
@@ -92,12 +93,39 @@ ssh root@<ip>                      # no password (debug-tweaks)
 
 Reserve the address in the router's DHCP settings to avoid rescanning after every reboot.
 
+Reflashing the card regenerates the SSH host keys, so every new image trips
+`REMOTE HOST IDENTIFICATION HAS CHANGED`. Scope the exception to this host in
+`~/.ssh/config` rather than disabling host checking globally:
+
+```
+Host pi
+    HostName 192.168.1.5
+    User root
+    StrictHostKeyChecking no
+    UserKnownHostsFile /dev/null
+    LogLevel ERROR
+```
+
+This trades away MITM protection for one address on a local network — acceptable
+for a development board, not for anything else.
+
 ## Display configuration
 
-DPI timings and output format are set through `RPI_EXTRA_CONFIG` in `configs/local.conf`, so they are written into `config.txt` at build time and survive reflashing. The `vc4graphics` machine feature is dropped because legacy DPI is firmware-driven and incompatible with full KMS.
+The panel runs under full KMS through the `vc4-kms-dpi-generic` overlay. Timings
+are derived from the panel datasheet and written into `config.txt` at build time
+via `RPI_EXTRA_CONFIG` in `configs/local.conf`, so they survive reflashing.
 
-Details and the derivation of the timings are in
-[docs/troubleshooting.md](docs/troubleshooting.md#11-bringing-up-the-dpi-display).
+Full KMS requires several DRM drivers to be built into the kernel rather than
+shipped as modules — `linux-raspberrypi` defaults them to `=m`, which breaks the
+probe order and leaves either the panel or the GPU dead. Both are forced builtin
+from a `do_configure:append` hook in `meta-carpanel`.
+
+With the V3D driver in place the kernel exposes a render node
+(`/dev/dri/renderD128`), which is what Qt's `eglfs_kms` backend needs for
+hardware-accelerated OpenGL ES.
+
+Details, the timing derivation and both kernel config problems are in
+[docs/troubleshooting.md](docs/troubleshooting.md).
 The generated `config.txt` is kept in `configs/` for reference.
 
 ## Status
@@ -108,9 +136,12 @@ The generated `config.txt` is kept in `configs/` for reference.
 - [x] Build and flash automated in a single script
 - [x] DPI display driven at 1024×600 through the RGB LCD HAT
 - [x] Display configuration baked into the image via `RPI_EXTRA_CONFIG`
+- [x] Custom Yocto layer `meta-carpanel` with kernel configuration overrides
+- [x] Display migrated from legacy firmware DPI to full KMS/DRM
+- [x] V3D GPU driver built in, render node available for hardware acceleration
+- [ ] meta-qt6 integrated, Qt built with the eglfs_kms backend
+- [ ] Project image recipe (`car-panel-image.bb`)
 - [ ] GT9271 touch panel over I²C
-- [ ] Qt layer integrated, image built with a graphics stack
-- [ ] Project-specific layer and image recipe
 - [ ] STM32 ↔ Raspberry Pi UART protocol
 - [ ] STM32 firmware: LTDC, instrument cluster rendering
 - [ ] CAN reception on the STM32, CAN packet simulator on the PC

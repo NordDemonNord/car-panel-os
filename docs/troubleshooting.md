@@ -423,3 +423,55 @@ more than suppress the `vc4-kms-v3d` line in config.txt — it disables
   — it is evidence about the first one.
 - A serial console is not optional. Every dead end here came from having no way
   to read the kernel log when the board would not boot.
+
+## 14. No GPU render node: /dev/dri/renderD128 missing
+
+**Symptom.** The panel works under full KMS, but `ls /dev/dri` shows only
+`card0`. Without a render node Mesa cannot open the GPU, so Qt would fall back
+to software rendering and the whole point of moving to KMS would be lost.
+
+**Diagnosis.**
+
+    dmesg | grep -i v3d                       # empty
+    ls /sys/bus/platform/drivers/ | grep v3d   # vc4_v3d only
+    ls /sys/bus/platform/devices/ | grep v3d   # fec00000.v3d exists
+    ls /sys/bus/platform/devices/fec00000.v3d/ # no 'driver' symlink
+
+The device node is present and `status = okay` in the device tree, and the
+`vc4` driver binds hvs, hdmi, dpi, txp and five pixelvalves — but never v3d.
+`vc4_v3d` is the driver for the VideoCore IV 3D core (Pi 1-3). The BCM2711
+uses V3D 4.2, which is handled by a separate driver, `v3d`, and that driver
+was not registered at all.
+
+**Root cause.** Another kernel config issue, the same class as the panel one:
+
+    CONFIG_DRM_V3D=m
+    CONFIG_DRM_SCHED=m     # hard dependency of DRM_V3D
+
+Built as modules, they live in the rootfs, which is mounted long after the
+built-in `vc4` driver has already probed and registered its DRM device
+without a 3D core.
+
+**Fix.** Extend the existing `do_configure:append` in
+`meta-carpanel/recipes-kernel/linux/linux-raspberrypi_6.6.bbappend`:
+
+    for s in BACKLIGHT_CLASS_DEVICE DRM_PANEL_SIMPLE DRM_SCHED DRM_V3D; do
+
+Order matters. `DRM_SCHED` must come before `DRM_V3D`, because Kconfig
+refuses `=y` for a symbol whose dependency is still `=m` — the same trap that
+`BACKLIGHT_CLASS_DEVICE` set earlier.
+
+Then `bitbake -c cleansstate virtual/kernel`, rebuild, and verify both symbols
+are `=y` in the resulting `.config` before flashing.
+
+**Result.** `/dev/dri` now exposes `card0`, `card1` and `renderD128`.
+
+**Useful technique.** To map a device tree node to a kernel config symbol:
+
+    cat /proc/device-tree/<node>/compatible     # on target
+    grep -rn '<compatible>' drivers/            # in kernel-source
+    cat drivers/<path>/Makefile                 # obj-$(CONFIG_X) gives the symbol
+    cat drivers/<path>/Kconfig                  # gives its dependencies
+
+`/sys` tells you what is running; the sources tell you what should be. The
+`compatible` string is the bridge between them.
