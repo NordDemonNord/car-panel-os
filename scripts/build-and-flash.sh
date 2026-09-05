@@ -10,17 +10,24 @@
 #
 # Переменные окружения:
 #   YOCTO_DIR   рабочая директория Yocto (по умолчанию ~/yocto)
-#   IMAGE       имя образа (по умолчанию core-image-minimal)
+#   IMAGE       имя образа (по умолчанию carpanel-image)
 #   MACHINE     целевая машина (по умолчанию raspberrypi4-64)
 
 set -euo pipefail
 
+
+set_paths() {
+    WIC="$DEPLOY_DIR/${IMAGE}-${MACHINE}.rootfs.wic.bz2"
+    BMAP="$DEPLOY_DIR/${IMAGE}-${MACHINE}.rootfs.wic.bmap"
+}
+
+
 YOCTO_DIR="${YOCTO_DIR:-$HOME/yocto}"
-IMAGE="${IMAGE:-core-image-minimal}"
+IMAGE="${IMAGE:-carpanel-image}"
 MACHINE="${MACHINE:-raspberrypi4-64}"
 
 DEPLOY_DIR="$YOCTO_DIR/build/tmp/deploy/images/$MACHINE"
-WIC="$DEPLOY_DIR/${IMAGE}-${MACHINE}.rootfs.wic.bz2"
+set_paths
 
 DEVICE=""
 DO_BUILD=1
@@ -32,6 +39,7 @@ if [[ -t 1 ]]; then
 else
     R=""; G=""; Y=""; B=""; N=""
 fi
+
 
 log()  { echo -e "\n${B}=== $* ===${N}\n"; }
 warn() { echo -e "${Y}$*${N}"; }
@@ -54,7 +62,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 # пути зависят от IMAGE, пересчитываем после разбора аргументов
-WIC="$DEPLOY_DIR/${IMAGE}-${MACHINE}.rootfs.wic.bz2"
+set_paths
+
 
 [[ $EUID -ne 0 ]] || fail "Не запускай от root — BitBake этого не допускает."
 
@@ -91,6 +100,7 @@ fi
 # Проверка наличия образа
 # ---------------------------------------------------------------------------
 [[ -f "$WIC" ]] || fail "Образ не найден: $WIC"
+[[ -f "$BMAP" ]] || fail "Не найден bmap: $BMAP"
 
 IMG_SIZE=$(du -h "$WIC" | cut -f1)
 IMG_DATE=$(date -r "$WIC" '+%Y-%m-%d %H:%M:%S')
@@ -159,8 +169,7 @@ done
 
 log "Запись образа"
 
-bzcat "$WIC" | sudo dd of="$DEVICE" bs=4M status=progress conv=fsync
-sync
+sudo bmaptool copy --bmap "$BMAP" "$WIC" "$DEVICE"
 
 log "Готово"
 
