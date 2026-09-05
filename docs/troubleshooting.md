@@ -475,3 +475,17 @@ are `=y` in the resulting `.config` before flashing.
 
 `/sys` tells you what is running; the sources tell you what should be. The
 `compatible` string is the bridge between them.
+
+## 15. Applications land on HDMI instead of the panel
+
+Both `card0-DPI-1` and `card0-HDMI-A-1` report `connected`, so a KMS client
+picks whichever connector it enumerates first. `kmscube` chose HDMI; unplugging
+it moved the cube to the panel, confirming the GPU path works end to end.
+
+Disabling HDMI in config.txt would fix this but costs the debug output. The
+proper fix is naming the connector explicitly — for Qt that is an eglfs_kms
+JSON config shipped in the image.
+
+Open question: after unplugging HDMI the kernel logged
+`vc4-drm gpu: [drm] User-defined mode not supported: "1920x1080"`. Source of
+that mode request not yet identified.
