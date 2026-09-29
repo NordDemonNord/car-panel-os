@@ -10,7 +10,7 @@ LIC_FILES_CHKSUM = " \
 
 # Pinned to an exact commit: the image always gets a known version.
 SRC_URI = "git://github.com/NordDemonNord/qt-instrument-cluster.git;protocol=https;branch=main"
-SRCREV = "04ca55b1e982633e3ac894f6d150f692e07f0f79"
+SRCREV = "86b311514ce9447020c21f86fa0fe6066305f631"
 PV = "0.1+git"
 S = "${WORKDIR}/git"
 
@@ -36,3 +36,18 @@ RDEPENDS:${PN} = " \
     qt5compat-qmlplugins \
     qtsvg-plugins \
     "
+
+# --- Autostart on boot ---
+SRC_URI += "file://qt-instrument-cluster.service"
+
+inherit systemd
+SYSTEMD_SERVICE:${PN} = "qt-instrument-cluster.service"
+SYSTEMD_AUTO_ENABLE = "enable"
+
+do_install:append() {
+    install -d ${D}${systemd_system_unitdir}
+    install -m 0644 ${WORKDIR}/qt-instrument-cluster.service ${D}${systemd_system_unitdir}/
+}
+
+# The unit reads /etc/default/qt-eglfs.
+RDEPENDS:${PN} += "eglfs-config"

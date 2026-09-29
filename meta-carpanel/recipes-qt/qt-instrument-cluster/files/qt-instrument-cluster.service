@@ -1,0 +1,23 @@
+[Unit]
+Description=Qt instrument cluster
+After=systemd-udevd.service systemd-logind.service
+# Take over the display from the text login on tty1.
+Conflicts=getty@tty1.service
+After=getty@tty1.service
+# Give up after 5 crashes within a minute instead of looping forever.
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+EnvironmentFile=/etc/default/qt-eglfs
+Environment=VEHICLE_DATA_SOURCE=demo
+# Verbose platform logs while bringing the display up.
+Environment=QT_LOGGING_RULES=qt.qpa.*=true
+ExecStart=/usr/bin/appDashBoard
+Restart=on-failure
+RestartSec=2
+StandardOutput=append:/var/log/qt-instrument-cluster.log
+StandardError=append:/var/log/qt-instrument-cluster.log
+
+[Install]
+WantedBy=multi-user.target
