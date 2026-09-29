@@ -1,0 +1,8 @@
+{
+  "device": "/dev/dri/card0",
+  "hwcursor": false,
+  "outputs": [
+    { "name": "DPI1",  "mode": "1024x600" },
+    { "name": "HDMI1", "mode": "off" }
+  ]
+}

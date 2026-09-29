@@ -20,4 +20,6 @@ IMAGE_INSTALL += " \
     qtsvg \
     ttf-dejavu-sans \
     kmscube \
+    eglfs-config \
+    carpanel-hello \
     "
