@@ -10,7 +10,7 @@ LIC_FILES_CHKSUM = " \
 
 # Pinned to an exact commit: the image always gets a known version.
 SRC_URI = "git://github.com/NordDemonNord/qt-instrument-cluster.git;protocol=https;branch=main"
-SRCREV = "86b311514ce9447020c21f86fa0fe6066305f631"
+SRCREV = "a71862bc9e8964fe50a85195d776b20a74f018e7"
 PV = "0.1+git"
 S = "${WORKDIR}/git"
 
