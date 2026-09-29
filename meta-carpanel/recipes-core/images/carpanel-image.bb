@@ -22,4 +22,5 @@ IMAGE_INSTALL += " \
     kmscube \
     eglfs-config \
     carpanel-hello \
+    qt-instrument-cluster \
     "
