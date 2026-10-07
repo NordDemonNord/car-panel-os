@@ -24,3 +24,8 @@ IMAGE_INSTALL += " \
     carpanel-hello \
     qt-instrument-cluster \
     "
+
+# CP2102, STM32 link
+IMAGE_INSTALL += " \
+    kernel-module-cp210x \
+    "
