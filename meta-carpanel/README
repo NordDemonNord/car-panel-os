@@ -1,41 +1,50 @@
-This README file contains information on the contents of the meta-carpanel layer.
+meta-carpanel
+=============
 
-Please see the corresponding sections below for details.
+Project layer for the Car Dashboard infotainment system (Raspberry Pi 4).
+
+Contents
+--------
+
+  conf/distro/carpanel.conf        distro policy: poky-based, systemd,
+                                   trimmed DISTRO_FEATURES, TARGET_VENDOR
+  recipes-core/images/             carpanel-image: the product image
+  recipes-kernel/linux/            linux-raspberrypi bbappend: DRM/V3D
+                                   drivers forced builtin for full KMS
+  recipes-graphics/eglfs-config/   Qt eglfs_kms config pinning the panel
+                                   connector, environment for Qt apps
+  recipes-qt/carpanel-hello/       minimal QML smoke test
+  recipes-qt/qt-instrument-cluster/
+                                   the Qt UI, fetched from its own repo
+                                   and started by a systemd service
 
 Dependencies
-============
+------------
 
-  URI: <first dependency>
-  branch: <branch name>
+All layers on the scarthgap (5.0 LTS) branch:
 
-  URI: <second dependency>
-  branch: <branch name>
+  poky (meta, meta-poky)     git://git.yoctoproject.org/poky
+  meta-raspberrypi           git://git.yoctoproject.org/meta-raspberrypi
+  meta-openembedded          https://github.com/openembedded/meta-openembedded
+                             (meta-oe, meta-python — required by meta-qt6)
+  meta-qt6                   https://code.qt.io/yocto/meta-qt6.git
+                             (pinned at 00c3bd95)
 
-  .
-  .
-  .
+Adding the layer to a build
+---------------------------
 
-Patches
-=======
+  bitbake-layers add-layer <path-to-repo>/meta-carpanel
 
-Please submit any patches against the meta-carpanel layer to the xxxx mailing list (xxxx@zzzz.org)
-and cc: the maintainer:
+Then set in local.conf:
 
-Maintainer: XXX YYYYYY <xxx.yyyyyy@zzzzz.com>
+  MACHINE = "raspberrypi4-64"
+  DISTRO  = "carpanel"
 
-Table of Contents
-=================
+and build:
 
-  I. Adding the meta-carpanel layer to your build
- II. Misc
+  bitbake carpanel-image
 
+Maintainer
+----------
 
-I. Adding the meta-carpanel layer to your build
-=================================================
-
-Run 'bitbake-layers add-layer meta-carpanel'
-
-II. Misc
-========
-
---- replace with specific information about the meta-carpanel layer ---
+NordDemonNord (https://github.com/NordDemonNord)

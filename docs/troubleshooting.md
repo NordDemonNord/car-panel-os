@@ -489,3 +489,107 @@ JSON config shipped in the image.
 Open question: after unplugging HDMI the kernel logged
 `vc4-drm gpu: [drm] User-defined mode not supported: "1920x1080"`. Source of
 that mode request not yet identified.
+
+---
+
+## 16. USB-UART adapter: no `/dev/ttyUSB0`
+
+**Symptom**
+The adapter is enumerated on USB, but no tty device appears:
+```
+usb 1-1.3: New USB device found, idVendor=10c4, idProduct=ea60
+usb 1-1.3: Product: CP2102 USB to UART Bridge Controller
+```
+The expected `cp210x converter now attached to ttyUSB0` line is missing, and
+`ls /dev/ttyUSB*` finds nothing.
+
+**Diagnosis**
+Two different causes look identical on the target:
+
+- A — the driver is not enabled in the kernel config at all;
+- B — the driver is built as a module (`=m`), but its package is not in the image.
+
+`/proc/config.gz` is not available (no `CONFIG_IKCONFIG_PROC`), and no
+`cp210x.ko` is found under `/lib/modules/$(uname -r)`. So check on the build
+host what the kernel build produced:
+```bash
+oe-pkgdata-util list-pkgs | grep -E 'cp210x|ch341|ftdi'
+```
+```
+kernel-module-ch341-6.6.63-v8
+kernel-module-cp210x-6.6.63-v8
+kernel-module-ftdi-sio-6.6.63-v8
+```
+The packages exist → cause B. `bcm2711_defconfig` enables the common USB-serial
+drivers as modules; `kernel-module-split` puts every `.ko` into its own package,
+and the image only gets what `IMAGE_INSTALL` asks for.
+
+**Fix**
+Add the module to the image recipe (`carpanel-image.bb`), not to `local.conf` —
+the adapter is part of the product, not of the board or the build machine:
+```
+# USB-UART adapter (CP2102) for the STM32 link
+IMAGE_INSTALL += " \
+    kernel-module-cp210x \
+    "
+```
+Use the short name. The real package name carries the kernel version; the short
+one is an alias declared via `RPROVIDES`, so the recipe survives kernel updates.
+`kernel-module-usbserial` and the kernel package are pulled in automatically via
+`RDEPENDS` — check with the raw pkgdata file:
+```bash
+grep -E 'RDEPENDS|RPROVIDES' \
+    tmp/pkgdata/raspberrypi4-64/runtime/kernel-module-cp210x-6.6.63-v8
+```
+Note that `oe-pkgdata-util read-value RDEPENDS kernel-module-cp210x` prints
+nothing: it looks up the real package name, not the `RPROVIDES` alias. An empty
+answer is not a "no".
+
+**Verification**
+1. Before flashing — the image manifest lists both modules:
+   ```bash
+   grep -E 'cp210x|usbserial' \
+       tmp/deploy/images/raspberrypi4-64/carpanel-image-raspberrypi4-64.rootfs.manifest
+   ```
+2. On the target — plugging the adapter logs `cp210x converter now attached to
+   ttyUSB0`; `lsmod` shows `cp210x` and `usbserial`, loaded by udev via the
+   device's modalias, not by hand.
+3. Loopback — jumper TX to RX on the adapter, nothing else connected:
+   ```bash
+   stty -F /dev/ttyUSB0 115200 raw -echo
+   cat /dev/ttyUSB0 &
+   echo hello > /dev/ttyUSB0     # "hello" comes back
+   kill %1
+   ```
+   This proves the whole Pi side (driver, tty, adapter) before the STM32 is involved.
+
+---
+
+## 17. `oe-init-build-env` creates a fresh build directory
+
+**Symptom**
+Sourcing the environment prints
+```
+You had no conf/local.conf file. This configuration file has therefore been
+created for you from .../local.conf.sample
+```
+and tools then work against the wrong configuration, e.g.
+`ERROR: Unable to find pkgdata directory .../tmp/pkgdata/qemux86-64`.
+
+**Cause**
+The script's argument is the build directory. Without it, the default is
+`build` **relative to the current directory**. Sourcing from `~` created `~/build`;
+sourcing from inside `~/yocto/build` created `~/yocto/build/build`. Running `cd`
+afterwards does not help — the environment (`$BUILDDIR`, `$BBPATH`) stays bound
+to the directory chosen at source time.
+
+**Fix**
+```bash
+source ~/yocto/poky/oe-init-build-env ~/yocto/build
+echo $BUILDDIR        # must print /home/<user>/yocto/build
+```
+Delete the stray directories (after checking with `ls` that they only contain `conf/`).
+
+The line "This is the default build configuration for the Poky reference
+distribution" is printed on every run and means nothing; the "You had no
+conf/…" lines are the real sign of a freshly created build directory.
