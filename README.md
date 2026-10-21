@@ -163,8 +163,28 @@ the cluster runs on the STM32 and the Pi hosts the infotainment UI.
 
 The STM32 talks to the Pi over UART through a CP2102 USB-UART bridge. The
 `cp210x` driver is built as a kernel module and installed by `carpanel-image`;
-udev loads it on plug-in and the port appears as `/dev/ttyUSB0`. For binary
-data the port must be in raw mode (`stty -F /dev/ttyUSB0 115200 raw -echo`).
+udev loads it on plug-in and the port appears as `/dev/ttyUSB0`.
+
+The data on that link is **SLCAN** — classic CAN frames encoded as text
+(`t1A022EE0\r` = standard ID `0x1A0`, 2 data bytes `2E E0`). `slcand` attaches
+the serial port to the kernel `slcan` driver, which turns it into a SocketCAN
+interface `can0`. Everything above that — `candump`, and later the Qt app through
+QtSerialBus — sees ordinary CAN and does not know about the UART. When a real CAN
+controller replaces the serial link, only the way `can0` is brought up changes.
+
+```bash
+slcand -o -c -s6 -S 115200 /dev/ttyUSB0 can0   # -S: UART baud rate, -s6: CAN bit rate (unused here)
+ip link set can0 up
+candump can0                                     # can0  1A0   [2]  2E E0
+```
+
+`carpanel-image` installs the kernel side (`slcan`, plus `can` and `can-raw` for
+`PF_CAN` sockets) and the user space side (`can-utils`, `can-utils-slcan`,
+`qtserialbus` with its `socketcan` plugin). Starting `slcand` on boot is not
+automated yet.
+
+Frame layout so far: ID `0x1A0` — vehicle speed, 2 bytes, `uint16`,
+0.01 km/h per bit, Motorola (big-endian) byte order.
 
 ## Status
 
@@ -179,9 +199,12 @@ data the port must be in raw mode (`stty -F /dev/ttyUSB0 115200 raw -echo`).
 - [x] `qt-instrument-cluster` packaged and started on boot (demo data)
 - [x] Direct Ethernet link to the build host
 - [x] USB-UART bridge (CP2102) supported in the image, loopback-tested
+- [x] SLCAN / SocketCAN in the image: speed frames from the STM32 received on `can0`
 - [ ] STM32 firmware: clock, UART, FDCAN (register-level, CMSIS only)
 - [ ] CAN path: PC + CANable → STM32
-- [ ] STM32 ↔ Raspberry Pi UART protocol, serial data source in the Qt app
+- [x] STM32 → Raspberry Pi protocol: SLCAN over UART (test speed frames)
+- [ ] `slcand` + `can0` started on boot (systemd)
+- [ ] CAN data source in the Qt app (QtSerialBus, `socketcan`)
 - [ ] ESP32 CAN signal simulator
 - [ ] GT9271 touch panel over I²C
 - [ ] Infotainment UI

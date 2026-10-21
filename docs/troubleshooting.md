@@ -593,3 +593,127 @@ Delete the stray directories (after checking with `ls` that they only contain `c
 The line "This is the default build configuration for the Poky reference
 distribution" is printed on every run and means nothing; the "You had no
 conf/…" lines are the real sign of a freshly created build directory.
+
+---
+
+## 18. Direct Ethernet link to the Pi: heavy packet loss, SSH drops
+
+**Symptom**
+SSH to the Pi fails with `No route to host` or hangs, while the board is up.
+`ping` partly works with 60–70 % packet loss and a normal RTT (~0.3 ms) for the
+packets that do arrive. The problem comes and goes; a power cycle of the Pi
+sometimes "fixes" it for a while.
+
+Setup: build host → powered USB 3.0 hub → USB-LAN adapter RTL8153 (driver
+`r8152`) → Cat6 cable → Pi 4 onboard Ethernet, NetworkManager "Shared to other
+computers".
+
+**Diagnosis** — collect data while the problem is happening, before rebooting anything:
+```bash
+sudo dmesg | grep -i r8152 | tail            # adapter resets? only carrier on/off around Pi reboots
+ip -s link show <iface>                       # RX/TX errors: 0 — frames are not corrupted
+sudo ethtool --show-eee <iface>               # EEE status: enabled - active (both link partners)
+```
+Loss without errors and without adapter resets points at the link going to sleep
+between packets: Energy Efficient Ethernet (EEE, 802.3az) was active on both ends.
+EEE problems with RTL8153/`r8152` adapters are widely reported.
+
+A/B test:
+```bash
+ping -c 100 -i 0.2 10.42.0.124                       # before: 64 % loss
+sudo ethtool --set-eee <iface> eee off
+ping -c 100 -i 0.2 10.42.0.124                       # after: 0 % loss
+```
+
+**Fix**
+`ethtool --set-eee` is lost when the adapter is replugged. Make it permanent on the
+build host with a udev rule matched by the adapter's MAC address
+(`/etc/udev/rules.d/70-usb-lan-eee-off.rules`):
+```
+ACTION=="add", SUBSYSTEM=="net", ATTR{address}=="c8:4d:44:27:1c:f6", RUN+="/usr/sbin/ethtool --set-eee $name eee off"
+```
+Check after replugging: `ethtool --show-eee <iface>` → `disabled`.
+NetworkManager only got EEE settings in recent versions, so the udev rule is the
+version-independent option. Disabling EEE on the Pi side is not needed — one end
+is enough.
+
+---
+
+## 19. `slcand: not found` although `can-utils` is in the image
+
+**Symptom**
+`can-utils` is listed in the image manifest, but on the target
+```
+-sh: slcand: not found
+```
+
+**Cause**
+The `can-utils` recipe (meta-oe) splits its programs into several packages. The
+main package only has the common tools; `slcand` lives in `can-utils-slcan`:
+```bash
+oe-pkgdata-util find-path '*/slcand'          # can-utils-slcan: /usr/bin/slcand
+oe-pkgdata-util list-pkg-files -p can-utils   # all packages of the recipe and their files
+```
+Other split packages: `-access`, `-cantest`, `-isotp`, `-j1939`, `-log`.
+
+A second trap: `find-path '*/candump'` finds nothing, because the file is packaged
+as `/usr/bin/candump.can-utils` (same for `cansend`, `cansequence`). The old
+`canutils` recipe provides programs with the same names, so `update-alternatives`
+installs them with a suffix and creates the `/usr/bin/candump` symlink on the
+target at install time. `candump` is in the main `can-utils` package.
+
+**Fix**
+```
+IMAGE_INSTALL += "can-utils can-utils-slcan"
+```
+A package in the manifest does not tell which files it carries — check with
+`list-pkg-files` / `find-path` before flashing.
+
+The same naming surprise exists for Qt: the manifest lists `qtserialbus` as
+`libqt6serialbus6` and `libqt6serialbus6-plugins` (Debian-style renaming after
+the shared library name). Search the manifest with `grep -i serialbus`.
+
+---
+
+## 20. `candump`: `socket: Address family not supported by protocol`
+
+**Symptom**
+`slcand` starts and `ip link set can0 up` succeeds, but
+```
+candump can0
+socket: Address family not supported by protocol
+```
+
+**Cause**
+The CAN stack in the kernel is several modules:
+
+| Module | Role |
+|---|---|
+| `slcan` | serial line discipline, parses SLCAN text into CAN frames |
+| `can-dev` | common base for CAN network interfaces (`can0`) |
+| `can` | the `PF_CAN` socket family |
+| `can-raw` | the `CAN_RAW` protocol used by `candump` and Qt's `socketcan` plugin |
+
+`slcan` depends on `can-dev` only, so the interface works, but nothing pulls in
+the socket side. `/lib/modules/$(uname -r)/kernel/net/can/` does not exist on the
+target. On a desktop distribution all modules are installed and the kernel loads
+them on the first `socket()` call, which is why the same commands work on the
+build host.
+
+**Fix**
+```bash
+oe-pkgdata-util list-pkgs | grep kernel-module-can   # can, can-raw, can-bcm, can-gw, can-isotp, can-j1939, can-dev
+```
+```
+IMAGE_INSTALL += "kernel-module-can kernel-module-can-raw"
+```
+`can-bcm` (kernel-side cyclic sending) will be needed once the Pi transmits
+frames periodically.
+
+**Check that a module matches the kernel**
+```bash
+modinfo slcan | grep vermagic    # 6.6.63-v8 SMP preempt ...
+uname -r                         # 6.6.63-v8
+```
+On the build host the manifest shows the same kernel version and source hash for
+`kernel-image` and every `kernel-module-*`.
