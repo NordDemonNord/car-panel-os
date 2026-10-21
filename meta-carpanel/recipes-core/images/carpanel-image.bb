@@ -29,3 +29,13 @@ IMAGE_INSTALL += " \
 IMAGE_INSTALL += " \
     kernel-module-cp210x \
     "
+# SLCAN link to the STM32: kernel driver, slcand/candump, Qt CAN API + socketcan plugin
+IMAGE_INSTALL += " \
+    kernel-module-slcan \
+    can-utils \
+    qtserialbus \
+    qtserialbus-plugins \
+    can-utils-slcan \
+    kernel-module-can \
+    kernel-module-can-raw \
+    "
