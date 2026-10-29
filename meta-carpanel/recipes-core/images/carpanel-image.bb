@@ -25,17 +25,9 @@ IMAGE_INSTALL += " \
     qt-instrument-cluster \
     "
 
-# CP2102, STM32 link
+# SLCAN link to the STM32: can0 brought up on boot (carpanel-can),
+# candump/cansend for manual debugging (can-utils).
 IMAGE_INSTALL += " \
-    kernel-module-cp210x \
-    "
-# SLCAN link to the STM32: kernel driver, slcand/candump, Qt CAN API + socketcan plugin
-IMAGE_INSTALL += " \
-    kernel-module-slcan \
     can-utils \
-    qtserialbus \
-    qtserialbus-plugins \
-    can-utils-slcan \
-    kernel-module-can \
-    kernel-module-can-raw \
+    carpanel-can \
     "
