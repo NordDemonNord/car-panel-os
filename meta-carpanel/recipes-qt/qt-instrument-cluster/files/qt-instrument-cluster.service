@@ -10,7 +10,7 @@ StartLimitBurst=5
 
 [Service]
 EnvironmentFile=/etc/default/qt-eglfs
-Environment=VEHICLE_DATA_SOURCE=demo
+Environment=VEHICLE_DATA_SOURCE=can
 # Verbose platform logs while bringing the display up.
 Environment=QT_LOGGING_RULES=qt.qpa.*=true
 ExecStart=/usr/bin/appDashBoard

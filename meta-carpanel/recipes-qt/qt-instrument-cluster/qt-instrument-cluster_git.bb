@@ -10,7 +10,7 @@ LIC_FILES_CHKSUM = " \
 
 # Pinned to an exact commit: the image always gets a known version.
 SRC_URI = "git://github.com/NordDemonNord/qt-instrument-cluster.git;protocol=https;branch=main"
-SRCREV = "a71862bc9e8964fe50a85195d776b20a74f018e7"
+SRCREV = "d34b2d9449ff6dfef2c48fa96fa394ed02ecb8e1"
 PV = "0.1+git"
 S = "${WORKDIR}/git"
 
@@ -25,16 +25,19 @@ DEPENDS = " \
     qtdeclarative-native \
     qtsvg \
     qt5compat \
+    qtserialbus \
     "
 
 # Run time: loaded dynamically, so the linker cannot see them.
 #   qtdeclarative-qmlplugins - QtQuick
 #   qt5compat-qmlplugins     - Qt5Compat.GraphicalEffects
 #   qtsvg-plugins            - SVG image format for Image { source: "*.svg" }
+#   qtserialbus-plugins      - socketcan backend for QCanBusDevice
 RDEPENDS:${PN} = " \
     qtdeclarative-qmlplugins \
     qt5compat-qmlplugins \
     qtsvg-plugins \
+    qtserialbus-plugins \
     "
 
 # --- Autostart on boot ---
